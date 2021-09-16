@@ -1,0 +1,422 @@
+---
+title: "IDS 702 Assignment 2"
+author: "Vicki Nomwesigwa"
+date: September 11, 2011
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, fig.width=8, fig.height=3)
+```
+
+```{r, echo=FALSE, warning=FALSE, include=FALSE}
+library(kableExtra)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(tinytex)
+library(GGally)
+library(broom)
+library(gridExtra)
+library(rms)
+library(ggplot2)
+library(Rmisc)
+library(RColorBrewer)
+```
+
+```{r, echo=FALSE}
+#### Read data for this project
+old_faithful = read.csv("OldFaithful.csv", header = T)
+dirty_babies = read.csv("babiesdata.csv", header = T)
+smoking = read.csv("smoking.csv", header = T)
+```
+
+# Question 1: OLD FAITHFUL
+
+```{r, echo=FALSE, include=FALSE}
+## Exploratory Data Analysis
+head(old_faithful)
+dim(old_faithful)
+summary(old_faithful)
+old_faithful$Date <- factor(old_faithful$Date)
+old_faithful$Duration <- as.numeric(old_faithful$Duration)
+str(old_faithful)
+```
+
+```{r, echo=FALSE, include=FALSE}
+ggplot(old_faithful, aes(x=Interval)) + 
+ geom_histogram(aes(y=..density..), colour="black", fill="white")+
+ geom_density(alpha=.25, fill="lightblue") +
+ scale_fill_brewer(palette="Blues") +
+ labs(title="Distribution of Interval",y="Interval") +
+ theme_classic() + theme(legend.position="none")
+
+ggplot(old_faithful, aes(x = Duration, y = Interval)) + geom_point() + geom_smooth(method = "lm")
+ggplot(old_faithful, aes(x = Date, y = Interval)) + geom_boxplot()
+```
+## Fit a regression model for predicting the interval between eruptions from the duration of the previous one, to the data, and interpret your results.
+```{r, echo=FALSE}
+modal <- lm(Interval ~ Duration , data=old_faithful)
+kable(tidy(modal), caption="Regression Model Summary")
+```
+Multiple R-Squared = 0.7369, Adjusted R-squared = 0.7344. Only 73% of our data is explained by the model(Seel Table 1).
+Regression Model: $\hat{Interval} = 33.8282 + 10.7410\hat{Duration}$
+The p-value is very small and less than 0.05 therefore, Duration is significant in determining the Interval.
+
+## 95% Confidence Interval
+For waiting times with the same duration, we expect the average waiting time to be between 9 and 11 minutes.
+```{r, echo=FALSE}
+kable(confint(modal, level = 0.95), format="markdown", caption="95% Confidence Interval")
+```
+
+## Describe in a few sentences whether or not you think the regression assumptions are plausible based on residual plots.
+In the Residuals vs Duration plot, there are two clusters of points, one on the extreme left and the other on the extreme right, this is probably due to lack of enough data but points are randomly distributed and therefore, linearity holds.
+
+In the Residuals vs Fitted points, the same pattern of two clusters follows but points are randomly and equally distributed hence Independence holds. For equal variance,  there is a curve on the red line, but it is not so extreme hence equality holds as well. This however, could potentially suggest a quadratic relationship and thus we need to watch it in case we increase our data.
+
+In the Normal Q-Q plot, the points surround the 45-degree normality line hence normality holds as well.
+```{r, echo=FALSE, include=FALSE}
+ggplot(old_faithful,aes(x=Duration, y=modal$residual)) +
+geom_point(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Duration",x="Duration",y="Residuals")
+```
+```{r, echo=FALSE}
+plot(modal,which=1,col=c("blue4"))
+plot(modal,which=2,col=c("blue4"))
+```
+
+```{r , echo=FALSE, include=FALSE}
+plot(modal,which=5,col=c("blue4"))
+```
+
+## Fit another regression model for predicting interval from duration and day. Treat day as a categorical/factor variable. Is there a significant difference in mean intervals for any of the days (compared to the first day)? Interpret the effects of controlling for the days (do so only for the days with significant effects, if any).
+
+Multiple R-Squared = 0.7408, Adjusted R-squared = 0.7196. Only 74% of our data is explained by the model(see Table 3).
+The new model is centered around the first Day, all the other days are not significant as they have a p-value > 0.05.
+
+```{r, echo=FALSE}
+modal2 <- lm(Interval ~ Date + Duration , data=old_faithful)
+kable(tidy(modal2), caption="Regression Model with Date Inclusive", digits=5)
+```
+```{r, echo=FALSE, include=FALSE}
+kable(confint(modal2), caption="95% Confidence Interval")
+```
+
+## Perform an F-test to compare this model to the previous model excluding day. In context of the question, what can you conclude from the results of the F-test?
+The F-test generates a p-value 0.9828 which is > 0.05 and thus not significant concluding that we should not reject the null hypothesis. Since date proved not to be significant in the second model, we can do without it for our final model.
+```{r, echo=FALSE, include=FALSE}
+kable(anova(modal, modal2))
+```
+\raggedright
+## Using k-fold cross validation (with k=10), compare the average RMSE for this model and the average RMSE for the previous model excluding day. Which model appears to have higher predictive accuracy based on the average RMSE values?
+Average RMSE for model 1: 6.690783 
+Average RMSE for model 2 including day: 6.554222 
+The second model has a lower average RMSE and therefore has a higher predictive accuracy. However, the difference caused by having one more predictor variable is not too big to disqualify the first model.
+```{r, echo=FALSE, include=FALSE}
+set.seed(123)
+#shuffle the data
+shuffled_old_faithful <- old_faithful[sample(nrow(old_faithful)),]
+# Define the number of folds you want
+K <- 10 #from question 3
+# Define a matrix to save your results into
+RMSE <- matrix(0,nrow=K,ncol=1)
+# Split the row indexes into k equal parts
+kth_fold <- cut(seq(1,nrow(shuffled_old_faithful)),breaks=K,labels=FALSE)
+# Now write the for loop for the k-fold cross validation
+for(k in 1:K){
+# Split your data into the training and test datasets
+test_index <- which(kth_fold==k)
+train <- shuffled_old_faithful[-test_index,]
+test <- shuffled_old_faithful[test_index,]
+# Now that you've split the data, 
+# fit model on train data
+train_model = lm(Interval ~ Duration , data=train)
+# predict onto the test data using the linear model
+y_test_predict <- predict(train_model, test)
+MSE <- mean((test$Interval - y_test_predict)^2)
+RMSE[k,] <- sqrt(MSE) 
+}
+# calculate the average of all RSME mat
+avgRMSE <- mean(RMSE)
+avgRMSE
+```
+
+
+```{r, echo=FALSE, include=FALSE}
+set.seed(123)
+#shuffle the data
+shuffled_old_faithful2 <- old_faithful[sample(nrow(old_faithful)),]
+# Define the number of folds you want
+K <- 10 #from question 3
+# Define a matrix to save your results into
+RMSE2 <- matrix(0,nrow=K,ncol=1)
+# Split the row indexes into k equal parts
+kth_fold2 <- cut(seq(1,nrow(shuffled_old_faithful2)),breaks=K,labels=FALSE)
+# Now write the for loop for the k-fold cross validation
+for(k in 1:K){
+# Split your data into the training and test datasets
+test_index2 <- which(kth_fold2==k)
+train2 <- shuffled_old_faithful2[-test_index2,]
+test2 <- shuffled_old_faithful2[test_index2,]
+# Now that you've split the data, 
+# fit model on train data
+train_model2 = lm(Interval ~ Duration + Date , data=train)
+# predict onto the test data using the linear model
+y_test_predict2 <- predict(train_model2, test2)
+MSE2 <- mean((test2$Interval - y_test_predict2)^2)
+RMSE2[k,] <- sqrt(MSE2) 
+}
+# calculate the average of all RSME mat
+avgRMSE2 <- mean(RMSE2)
+avgRMSE2
+```
+
+\newpage
+# Question 2: MATERNAL SMOKING AND BIRTH WEIGHTS
+
+## Summary
+In the project, I use the multiple linear regression to model the check if it is true whether mothers who smoke tend to give birth to babies with lower weights than mothers who do not smoke. We shall find the likely range for the difference in birth weights for smokers and non-smokers. We will also identify the different racial characteristics that are associated with the relationship between smoking and birth weight. We shall also look at the any other interactions that are associated with birth weight.
+
+## Introduction
+For this project we shall explore 1236 male single births where the baby lived at least 28 days. We will begin off by exploring how the variables in our data set such as mother's age, mother's height, smoke, mother's pregnant weight, mother's race, mother's education and parity relate to the birth weight. We will then explore interactions that exist between birth weight and smoke. To simplify analyses, we’ll compare babies whose mothers smoke to babies whose mothers have never smoked.
+
+## Data
+#### Handling Missing values
+I will solely focus on the mother's demographics for this data set since father's data seems to have a lot of missing values. I have also chosen to drop all missing values. There are better ways to deal with missing values of course that include substituting null values with mean, mode or median.
+
+#### Exploratory Data Analysis
+Mother's who do not smoke have a higher median birth weights than mother's who smoke. Median birth weight varies across different parity, mother's race. There is a random distribution between birth weight and mother's pregnant weight and mother's height. Also, we notice that birth weight increases with mother's pregnant weight and mother's height. There is no clear relationship between birth weight and mother's age as well as mother's education.
+```{r, echo=FALSE, include=FALSE}
+#### explore data
+head(smoking)
+dim(smoking)
+summary(smoking)
+str(smoking)
+```
+
+
+```{r, echo=FALSE}
+#### Exploratory Data Analysis
+ggplot(smoking, aes(x=as.factor(smoke), y=bwt.oz, fill=as.factor(smoke))) + 
+  geom_boxplot() + #coord_flip()  
+  scale_fill_brewer(palette="Blues") +
+  labs(title="Birthweight by Smoke",y = "Birthweight", x = "Smoke")+ 
+  theme_minimal() + theme(legend.position="up")
+```
+
+```{r, echo=FALSE,include=FALSE}
+ggplot(smoking, aes(x=as.factor(parity), y=bwt.oz, fill=as.factor(parity))) + 
+  geom_boxplot() + #coord_flip()  
+  scale_fill_brewer(palette="Blues") +
+  labs(title="Birthweight by Parity",y = "Birthweight", x = "Smoke")+ 
+  theme_minimal() + theme(legend.position="up")
+
+smoking$mrace[smoking$mrace <6] <- 1
+ggplot(smoking, aes(x=as.factor(mrace), y=bwt.oz, fill=as.factor(mrace))) + 
+  geom_boxplot() + 
+  scale_fill_brewer(palette="Blues") +
+  labs(title="Birthweight by Mother's Race", x = "Mother's Race", y="Birthweight") + 
+  theme_minimal() + theme(legend.position="up")
+
+smoking$mrace[smoking$med == 6 &  smoking$med == 7] <- 7
+ggplot(smoking, aes(x=as.factor(med), y=bwt.oz, fill=as.factor(med))) + 
+  geom_boxplot() + 
+  scale_fill_brewer(palette="Blues") +
+  labs(title="Birthweight by Mother's Education", x = "Mother's Education", y="Birthweight") + 
+  theme_minimal() + theme(legend.position="up")
+
+ggplot(smoking, aes(x = mage, y = bwt.oz)) + geom_point() + geom_smooth(method = "lm") +
+  labs(title="Birthweight by Mother's Age", x = "Mother's Age", y="Birthweight")
+
+ggplot(smoking, aes(x = mpregwt, y = bwt.oz)) + geom_point() + geom_smooth(method = "lm") +
+  labs(title="Birthweight by Mother's Pregnant Weight", x = "Mother's Pregnant Weight", y="Birthweight")
+
+ggplot(smoking, aes(x = mht, y = bwt.oz)) + geom_point() + geom_smooth(method = "lm") +
+  labs(title="Birthweight by Mother's Height", x = "Mother's Height", y="Birthweight")
+
+```
+
+
+#### Interactions
+In the interaction plots, mother's race interaction with birth weight and smoke shows varying distribution across all races and thus we need to explore this interaction.
+
+While there is equal distribution, there are varying birth weight medians of mother's who smoke and those who do not smoke across all parities.
+
+There is a random distribution of birth weight across all ages, pregnant weights and heights in mother's who smoke and mother's who do not smoke and thus we do not need to explore these interaction.
+
+The interaction between birth weight and smoke and mother's education seems to be equally distributed and mother's who do not smoke have higher median birth weights and thus we do not need to explore this interaction.
+```{r, echo=FALSE}
+ggplot(smoking,aes(group=smoke, x=smoke, y=bwt.oz, fill="smoke")) +
+  geom_boxplot(alpha = .5,colour="blue4") +
+  labs(title="Birthweight vs Smoke by Mother's Race", x="Smoke",y= "Birthweight") +
+  facet_wrap( ~ mrace, ncol=2)
+```
+
+```{r, echo=FALSE, , include=FALSE}
+
+ggplot(smoking,aes(group=smoke, x=smoke, y=bwt.oz, fill="smoke")) +
+  geom_boxplot(alpha = .5,colour="blue4") +
+  labs(title="Birthweight vs Smoke by Parity", x="Smoke",y= "Birthweight") +
+  facet_wrap( ~ parity, ncol=2)
+
+
+ggplot(smoking,aes(x=mage, y=bwt.oz)) +
+  geom_point(alpha = .5,colour="blue4") +
+  labs(title="Birthweight vs Mother's Age by Smoke", x="Age",y= "Birthweight") +
+  facet_wrap( ~ smoke, ncol=2)
+
+ggplot(smoking,aes(group=smoke, x=smoke, y=bwt.oz, fill="smoke")) +
+  geom_boxplot(alpha = .5,colour="blue4") +
+  labs(title="Birthweight vs Smoke by Mother's Education", x="Smoke",y= "Birthweight") +
+  facet_wrap( ~ med, ncol=2)
+
+ggplot(smoking,aes(x=mht, y=bwt.oz)) +
+  geom_point(alpha = .5,colour="blue4") +
+  labs(title="Birthweight vs Mother's Height by Smoke", x="Height",y= "Birthweight") +
+  facet_wrap( ~ smoke, ncol=2)
+
+ggplot(smoking,aes(x=mpregwt, y=bwt.oz)) +
+  geom_point(alpha = .5,colour="blue4") +
+  labs(title="Birthweight vs Mother's Preg Weight by Smoke", x="Weight",y= "Birthweight") +
+  facet_wrap( ~ smoke, ncol=2)
+
+```
+
+
+#### Model Assessment
+From our EDA, we conclude that our linear model has two interactions `smoke:mrace` and `smoke:parity` that we need to explore. The other predictor variables that seem to have a significant effect on birth weight are height, weight.
+
+Model A with no interactions(see table 3): $\hat{bwt.oz} = 46.2712281 - 9.5122458\hat{smoke} + 1.8020363\hat{parity1} + 4.1847663\hat{parity2} + 5.6349108\hat{parity3} + 4.6148195\hat{parity4} + 2.6920370\hat{parity5} + 8.7578982\hat{parity6} + 3.4104779\hat{parity7} + 16.6305050\hat{parity8} - 3.1111388\hat{parity9} + 7.9937313\hat{parity10} - 27.8185328\hat{parity11} + 0.9820392\hat{mht} + 3.8401133\hat{mrace6} - 8.6806974\hat{mrace7} - 7.9736505\hat{mrace8} - 1.9198738\hat{mrace9} + 0.0990576\hat{mpregwt}$
+
+Multiple R-Squared = 0.1704, Adjusted R-squared = 0.1528 Only 17% of our data is explained by the model.
+Parity1, Parity4, Parity5, Parity7, Parity8, Parity9, Parity10, mrace6 and mrace9 are not significant as they have a pvalue > 0.05
+
+```{r, echo=FALSE}
+smoking$parity <- factor(smoking$parity)
+smoking$mrace <- factor(smoking$mrace)
+model3 <- lm(bwt.oz ~ smoke + parity + mht + mrace + mpregwt, data=smoking)
+kable(tidy(model3), caption="Regression Model(No Interaction)")
+```
+
+```{r, echo=FALSE, include=FALSE}
+ggplot(smoking,aes(x=mht, y=model3$residual)) +
+geom_point(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Mother's Height",x="Mother's Height",y="Residuals")
+
+ggplot(smoking,aes(x=mpregwt, y=model3$residual)) +
+geom_point(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Mother's Pregnant Weight",x="Mother's Pregnant Weight",y="Residuals")
+
+ggplot(smoking,aes(x=mrace, y=model3$residual)) +
+geom_boxplot(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Mother's Race",x="Mother's Race",y="Residuals")
+
+ggplot(smoking,aes(x=parity, y=model3$residual)) +
+geom_boxplot(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Parity",x="Parity",y="Residuals")
+
+ggplot(smoking,aes(group=smoke, x=smoke, y=model3$residual)) +
+geom_boxplot(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Smoke",x="Smoke",y="Residuals")
+
+plot(model3,which=1,col=c("blue4"))
+plot(model3,which=2,col=c("blue4"))
+
+plot(model3,which=5,col=c("blue4"))
+```
+In the residual vs fitted points, points are randomly and equally distributed and therefore, independence and equal variance holds. In the individual residual plots against each variable, linearity holds as points are randomly distributed. There are tails at the start and end of the normality Q-Q plot along the 45-degree line which may suggest outliers but it's not so bad to disqualify normality.
+
+The residuals vs Leverage plot that no points are beyond 1 mark cook's distance score. A few points lie on the 0.5 leverage score.
+
+
+Moving on to the linear model with interactions, we have a new regression model.
+Multiple R-Squared = 0.1843, Adjusted R-squared = 0.1541 Only 18% of our data is explained by the model.
+None of the new interactions added are significant.
+
+A VIF test shows no multicollinearity.
+
+F-Test indicates that we have a pvalue > 0.05 and therefore suggests that including the interaction terms will not improve our model.
+
+A stepwise regression with AIC returns our first model with no interaction terms and a stepwise regression with BIC returns a shorter model without interactions and parity since we already so that most of the parity variations are not significant.
+
+
+```{r, echo=FALSE, include=FALSE}
+model4 <- lm(bwt.oz ~ mht + mpregwt + smoke*parity + smoke*mrace, data=smoking)
+summary(model4)
+confint(model4)
+```
+
+
+#### Stepwise AIC
+lm(formula = bwt.oz ~ smoke + mht + mrace + mpregwt + parity, 
+    data = smoking)
+```{r, echo=FALSE, include=FALSE}
+NullModel <- lm(bwt.oz ~ smoke,data=smoking)
+Model_forward <- step(NullModel, scope = formula(model4),direction="both",trace=0)
+Model_forward$call
+```
+
+#### Stepwise BIC
+lm(formula = bwt.oz ~ smoke + mht + mrace + mpregwt, data = smoking)
+```{r, echo=FALSE, include=FALSE}
+# use k = log(n) to use BIC instead.
+n <- nrow(smoking)
+Model_forward2 <- step(NullModel, scope = formula(model4),direction="both",trace=0,
+                      k = log(n))
+# Let's see the variables the model selected
+Model_forward2$call
+```
+
+```{r, echo=FALSE, include=FALSE}
+anova(model3, model4)
+```
+#### Final Model (See table 5)
+$\hat{bwt.oz} = 53.24651 - 9.27445\hat{smoke} + 0.87571\hat{mht} + 3.62858\hat{mrace6} - 8.19323\hat{mrace7} - 8.14676\hat{mrace8} - 1.66704\hat{mrace9} + 0.11788\hat{0.11788}$
+
+Multiple R-squared:  0.1469,	Adjusted R-squared:   0.14, Only 14% of our data is explained by the model
+mrace6(mexican) and mrace9(mixed) are not significant in determining birth weight. The rest of the predictors have a p-value less than 0.05 and therefore significant.
+The residual vs each predictors(not fitted predictors) model shows randomly distributed points and therefore linearity holds. The normal Q-Q plot shows tails off at the start and end of the 45-degree line but there is a large number of points on the line. For independence and equal variance, we observe randomness and equally distributed points in the residual vs Fitted values plot. VIF test shows no multicollinearity since all values are equal to 1. In the residual vs leverage points, we observe no high leverage points and high influence points.
+
+From the 95% Confidence Interval table, smoking and non-smoking mothers with the same height, race, and pregnant weight, are likely expected to have babies who weigh between 11.54oz and 7.01oz.
+
+
+```{r, echo=FALSE}
+model5 <- lm(bwt.oz ~ smoke + mht + mrace + mpregwt, data = smoking)
+kable(tidy(model5), caption="Final Regression Model")
+
+```
+
+
+```{r, echo=FALSE}
+kable(confint(model5), caption="Final 95% Confidence Interval")
+```
+
+```{r, echo=FALSE , include=FALSE}
+ggplot(smoking,aes(x=mht, y=model5$residual)) +
+geom_point(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Mother's Height",x="Mother's Height",y="Residuals")
+
+ggplot(smoking,aes(x=mpregwt, y=model5$residual)) +
+geom_point(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Mother's Pregnant Weight",x="Mother's Pregnant Weight",y="Residuals")
+
+ggplot(smoking,aes(x=mrace, y=model5$residual)) +
+geom_boxplot(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Mother's Race",x="Mother's Race",y="Residuals")
+
+ggplot(smoking,aes(group=smoke, x=smoke, y=model5$residual)) +
+geom_boxplot(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Smoke",x="Smoke",y="Residuals")
+
+plot(model5,which=1,col=c("blue4"))
+plot(model5,which=2,col=c("blue4"))
+
+plot(model5,which=5,col=c("blue4"))
+```
+
+````{r, echo=FALSE , include=FALSE}
+vif(model5)
+```
+\raggedright
+## Conclusion
+The importance of the findings in this study indicate that mother's who smoke will often give birth to children with low birth weight. The study also identifies race, mother's height and  mother's pregnant weight as significant factors in contributing to children birth weights. We have also seen that Mexican and Mixed race mother's are not significant in determining birth weight. One limitation we need to look out for is normality, a logarithmic transformation may be needed.
